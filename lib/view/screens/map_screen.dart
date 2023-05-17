@@ -15,28 +15,33 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMixin{
   MapController mapController = MapController();
   final Location _location = Location();
 
-  listenLocationChange(){
+  listenLocationChange() {
     _location.onLocationChanged.listen((location) {
       setState(() {
-        LatLng position = LatLng(location.latitude ?? 0, location.longitude ?? 0);
-        currentPoint = correctLocation(position);
-        debugPrint("Assigned Location : ${currentPoint.latitude}, ${currentPoint.longitude}");
+        LatLng position =
+            LatLng(location.latitude ?? 0, location.longitude ?? 0);
+        _previousLocation = _newLocation;
+        _newLocation = correctLocation(position);
+        _animationController.reset();
+        _animationController.forward();
+        debugPrint(
+            "Assigned Location : ${_newLocation.latitude}, ${_newLocation.longitude}");
       });
     });
   }
 
-  void initLocationChangeListener()async{
+  void initLocationChangeListener() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if(serviceEnabled){
+    if (serviceEnabled) {
       listenLocationChange();
     }
   }
 
-  double calculateDistance(LatLng pointA, LatLng pointB){
+  double calculateDistance(LatLng pointA, LatLng pointB) {
     const double earthRadius = 6371; // Radius of the Earth in kilometers
     final double lat1 = pointA.latitude * pi / 180.0;
     final double lon1 = pointA.longitude * pi / 180.0;
@@ -54,23 +59,24 @@ class _MapScreenState extends State<MapScreen> {
     return distance; // Distance in kilometers
   }
 
-  int biggestPosition(Map<int, double> values){
+  int biggestPosition(Map<int, double> values) {
     num smallest = values.values.first;
     int position = 0;
     values.forEach((key, value) {
-      if(value < smallest){
+      if (value < smallest) {
         smallest = value;
         position = key;
       }
     });
     return position;
   }
-  
-  LatLng correctLocation(LatLng position){
+
+  LatLng correctLocation(LatLng position) {
     // debugPrint("Actual Location : ${position.latitude} ${position.longitude}");
     Map<int, double> distPosition = {};
-    for(int i =0; i< actualRoute.length; i++){
-      distPosition.putIfAbsent(i, () => calculateDistance(position, actualRoute[i]));
+    for (int i = 0; i < actualRoute.length; i++) {
+      distPosition.putIfAbsent(
+          i, () => calculateDistance(position, actualRoute[i]));
     }
 
     int nearestPosition = biggestPosition(distPosition);
@@ -86,6 +92,14 @@ class _MapScreenState extends State<MapScreen> {
     userTraveledRoute.add(correctedPosition);
     // debugPrint("Corrected Location : ${correctedPosition.latitude} ${correctedPosition.longitude}");
     return correctedPosition;
+  }
+
+  LatLng calculateInterpolatedPosition() {
+    final double latitude = _previousLocation.latitude +
+        (_newLocation.latitude - _previousLocation.latitude) * _animationController.value;
+    final double longitude = _previousLocation.longitude +
+        (_newLocation.longitude - _previousLocation.longitude) * _animationController.value;
+    return LatLng(latitude, longitude);
   }
 
   List<LatLng> userTraveledRoute = [];
@@ -138,76 +152,82 @@ class _MapScreenState extends State<MapScreen> {
     LatLng(8.694546009473566, 76.81934143194313),
   ];
 
-  LatLng currentPoint = LatLng(8.684741650895619, 76.8243653881318);
+  late AnimationController _animationController;
+  LatLng _newLocation = LatLng(8.684741650895619, 76.8243653881318);
+  LatLng _previousLocation = LatLng(8.684741650895619, 76.8243653881318);
 
-  
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..addListener(() {
+        setState(() {});
+      });
+
+    // Start the animation when the widget is first built
+    _animationController.forward();
     initLocationChangeListener();
   }
 
   @override
   Widget build(BuildContext context) {
-   
-
+    final LatLng currentPosition = calculateInterpolatedPosition();
     return Scaffold(
         appBar: AppBar(title: const Text('Polylines')),
         body: Padding(
           padding: const EdgeInsets.all(0),
           child: Column(
+            children: [
+              Flexible(
+                child: FlutterMap(
+                  mapController: mapController,
+                  options: MapOptions(
+                    center:
+                        _newLocation, // LatLng(39.671962666484205, -8.68518646365095),
+                    zoom: 17,
+                    onTap: (tapPosition, point) {
+                      debugPrint('onTap');
+                    },
+                  ),
                   children: [
-                    Flexible(
-                      child: FlutterMap(
-                        mapController: mapController,
-                        options: MapOptions(
-                          center: currentPoint,// LatLng(39.671962666484205, -8.68518646365095),
-                          zoom: 17,
-                          onTap: (tapPosition, point) {
-                            debugPrint('onTap');
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'dev.fleaflet.flutter_map.example',
+                    ),
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                            points: actualRoute,
+                            strokeWidth: 10,
+                            color: Colors.green),
+                      ],
+                    ),
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                            points: userTraveledRoute,
+                            strokeWidth: 10,
+                            color: Colors.blue),
+                      ],
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: currentPosition,
+                          builder: (context) {
+                            return const LocationPointer();
                           },
-                        ),
-                        children: [
-                          TileLayer(
-                            urlTemplate:
-                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName:
-                                'dev.fleaflet.flutter_map.example',
-                          ),
-                          
-                          PolylineLayer(
-                            polylines: [
-                              Polyline(
-                                  points: actualRoute,
-                                  strokeWidth: 10,
-                                  color: Colors.green),
-                            ],
-                          ),
-                          PolylineLayer(
-                            polylines: [
-                              Polyline(
-                                points: userTraveledRoute,
-                                strokeWidth: 10,
-                                color: Colors.blue
-                              ),
-                            ],
-                          ),
-                          MarkerLayer(
-                            markers: [
-                              Marker(
-                                point: currentPoint,
-                                builder: (context) {
-                                  return const LocationPointer();
-                                },
-                              )
-                            ],
-                          ),
-
-                        ],
-                      ),
+                        )
+                      ],
                     ),
                   ],
                 ),
+              ),
+            ],
+          ),
         ));
   }
 }
